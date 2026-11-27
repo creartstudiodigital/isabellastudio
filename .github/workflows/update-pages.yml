@@ -1,0 +1,52 @@
+name: Actualizar página estática
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Aplicar y verificar la actualización
+        run: |
+          python -m pip install --quiet bsdiff4
+          python - <<'PYUPDATE'
+          from pathlib import Path
+          import bsdiff4
+          import hashlib
+          import zipfile
+
+          with zipfile.ZipFile('.github/pages-update.zip') as bundle:
+              bundle.extractall('.github/pages-update')
+
+          Path('index.html').write_bytes(Path('.github/pages-update/index.html').read_bytes())
+          pairs = [
+              ('static/index-COBXas2b.js', 'static/index-DzPJlv0d.js', 'index-DzPJlv0d.js.bsdiff'),
+              ('static/index-Cngv95NF.css', 'static/index-30bDKTDZ.css', 'index-30bDKTDZ.css.bsdiff'),
+          ]
+          for old_name, new_name, patch_name in pairs:
+              old = Path(old_name).read_bytes()
+              patch = Path('.github/pages-update', patch_name).read_bytes()
+              Path(new_name).write_bytes(bsdiff4.patch(old, patch))
+              Path(old_name).unlink()
+
+          expected = {'index.html': 'e6c7b452dc5ccc9ed07eea5bd5715caaf85ed6f1fe46eaa89cfd46810cb3425d', 'index-DzPJlv0d.js': '669e2559be85b5c82a64e5e88982d3488374018e4c2403a32d1c572603ec7b4a', 'index-30bDKTDZ.css': 'c4ea7c58d9f756b5ac65026709ce388446288c0c7b86bee4697ae70a02d826b0'}
+          for name, digest in expected.items():
+              path = Path('index.html') if name == 'index.html' else Path('static', name)
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, name
+          PYUPDATE
+      - name: Guardar la nueva versión
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm --quiet .github/pages-update.zip .github/workflows/update-pages.yml
+          git add -A
+          git commit -m "Actualizar especialidades, carrusel y video"
+          git push
